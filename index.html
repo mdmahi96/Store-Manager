@@ -1,0 +1,1455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Store Manager - Multi-Store POS, Inventory & Analytics</title>
+  <link rel="icon" type="image/png" href="logo.png" />
+  <link rel="apple-touch-icon" href="logo.png" />
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link rel="stylesheet" href="style.css" />
+  <script>
+    if (window.location.protocol === 'file:') {
+      document.addEventListener('DOMContentLoaded', function() {
+        setTimeout(function() {
+          if (!window.__sm_initialized) {
+            var banner = document.createElement('div');
+            banner.className = 'bg-amber-600 text-white text-xs font-semibold px-4 py-3 flex items-center justify-between shadow-lg sticky top-0 z-50';
+            banner.innerHTML = '<div class="flex items-center gap-2"><span class="text-base">💡</span><span><b>Browser Notice:</b> Chrome and Edge block local JavaScript modules when opened via <code>file://</code> protocol. Double-click <b>start-server.bat</b> in this folder or run a local server to launch Store Manager!</span></div><button onclick="this.parentElement.remove()" class="text-white font-bold px-2 py-0.5 hover:opacity-80">✕</button>';
+            document.body.prepend(banner);
+          }
+        }, 1200);
+      });
+    }
+  </script>
+</head>
+<body class="bg-slate-100 text-slate-800 min-h-screen pb-20 md:pb-6 flex flex-col">
+
+  <!-- Impersonation Active Banner -->
+  <div id="impersonationBanner" class="impersonation-bar hidden">
+    <div class="flex items-center gap-2">
+      <span class="text-base">👁️</span>
+      <span>Viewing as: <b id="impUserText">user</b> (Admin Impersonation Mode)</span>
+    </div>
+    <button id="exitImpersonationBtn" class="bg-amber-800 hover:bg-amber-900 text-white font-bold px-3 py-1 rounded text-xs transition shadow-sm">
+      Exit to Master Admin Dashboard ✕
+    </button>
+  </div>
+
+  <!-- Firebase Security Rules Warning Banner (Shown if Firestore denies permissions) -->
+  <div id="firestoreRulesBanner" class="bg-amber-500 text-slate-900 text-xs font-semibold px-4 py-2 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 shadow-md hidden z-30">
+    <div class="flex items-center gap-2">
+      <span class="text-base">⚠️</span>
+      <span><b>Firebase Permission Notice:</b> Cloud Firestore rules are restricting access.</span>
+    </div>
+    <div class="flex items-center gap-2">
+      <button id="btnOpenRulesHelper" class="bg-slate-900 hover:bg-black text-white px-3 py-1 rounded-md text-xs font-bold transition">
+        View 30-Sec Rules Fix 📋
+      </button>
+      <button id="dismissRulesBanner" class="text-slate-900 hover:text-black font-bold px-1.5 py-0.5">✕</button>
+    </div>
+  </div>
+
+  <!-- Email Verification Warning Banner -->
+  <div id="emailVerifyBanner" class="bg-amber-100 border-b border-amber-200 text-amber-900 text-xs px-4 py-2 flex flex-wrap items-center justify-between gap-2 hidden">
+    <div class="flex items-center gap-2">
+      <span>⚠️</span>
+      <span>Your email address (<b id="unverifiedEmailText">user@mail.com</b>) is not verified.</span>
+    </div>
+    <div class="flex items-center gap-2.5">
+      <button id="btnOpenOtpVerifyModal" class="btn btn-primary !py-1 !px-2.5 text-xs font-bold bg-amber-800 hover:bg-amber-900 border-0 shadow-sm text-white">
+        Enter Verification Code
+      </button>
+      <button id="resendVerificationBtn" class="underline font-semibold hover:text-amber-950 transition text-xs">
+        Resend Email Link
+      </button>
+    </div>
+  </div>
+
+  <!-- Main Top Header -->
+  <header class="bg-teal-900 text-white sticky top-0 z-20 shadow-md">
+    <div class="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between gap-3">
+      <!-- App Brand -->
+      <a href="#home" class="flex items-center gap-2.5 hover:opacity-95 transition">
+        <div class="w-9 h-9 rounded-lg bg-teal-800 border border-teal-700 flex items-center justify-center text-xl shadow-inner shrink-0 overflow-hidden">
+          <img src="logo.png" alt="Store Manager" class="w-full h-full object-cover" onerror="this.outerHTML='🏪'" />
+        </div>
+        <div>
+          <h1 class="text-base md:text-lg font-extrabold tracking-tight text-white leading-tight">Store Manager</h1>
+          <p class="text-[11px] text-teal-200 hidden sm:block">Public Multi-Store Cloud POS & Inventory</p>
+        </div>
+      </a>
+
+      <!-- Store Switcher Dropdown (Shown only for authenticated Store Owners) -->
+      <div id="storeSwitcherContainer" class="hidden items-center gap-1.5 bg-teal-800/90 border border-teal-700 rounded-lg px-2.5 py-1">
+        <span class="text-xs text-teal-300 hidden md:inline">Store:</span>
+        <select id="activeStoreSelect" class="bg-transparent text-white text-xs font-semibold focus:outline-none cursor-pointer max-w-[140px] md:max-w-[200px] truncate"></select>
+        <button id="btnAddStore" title="Add New Store" class="text-teal-200 hover:text-white text-sm font-bold ml-1 px-1.5 py-0.5 rounded hover:bg-teal-700 transition">
+          +
+        </button>
+      </div>
+
+      <!-- Navigation for Desktop & Tablets (Hidden when logged out) -->
+      <nav id="tabs" class="nav hidden">
+        <!-- Store Owner Tabs (Hidden for Admin & Visitors) -->
+        <div id="userStoreTabs" class="contents hidden">
+          <button data-tab="home" class="active"><span>📊</span><span class="tab-text">Dashboard</span></button>
+          <button data-tab="sells"><span>💰</span><span class="tab-text">Daily Sells</span></button>
+          <button data-tab="prices"><span>🏷️</span><span class="tab-text">Price List</span></button>
+          <button data-tab="data"><span>📁</span><span class="tab-text">Import / Export</span></button>
+        </div>
+
+        <!-- Master Admin Tab (Shown ONLY for Admin) -->
+        <button data-tab="admin" id="navAdminTab" class="hidden">
+          <span>🛡️</span><span class="tab-text font-bold text-amber-300">Master Admin</span>
+        </button>
+      </nav>
+
+      <!-- Right Action Controls -->
+      <div class="flex items-center gap-2">
+        <!-- Visitor Header Buttons (Shown when logged out) -->
+        <div id="navAuthButtons" class="flex items-center gap-2">
+          <button class="trigger-sign-in btn btn-secondary !py-1.5 !px-3 text-xs font-semibold text-teal-900 border-teal-300">
+            Sign In
+          </button>
+          <button class="trigger-register btn btn-warning !py-1.5 !px-3 text-xs font-bold text-slate-900 shadow-sm">
+            Create Store
+          </button>
+        </div>
+
+        <!-- Authenticated User Menu Dropdown (Shown when logged in) -->
+        <div id="navUserMenu" class="hidden relative">
+          <button id="profileDropdownBtn" type="button" class="flex items-center gap-2 bg-teal-800/90 hover:bg-teal-700/90 border border-teal-700 px-2.5 py-1.5 rounded-xl text-xs text-white transition shadow-sm cursor-pointer select-none">
+            <div id="headerUserAvatar" class="w-7 h-7 rounded-lg bg-teal-700 border border-teal-600 flex items-center justify-center text-sm font-bold shadow-inner shrink-0 overflow-hidden relative">
+              <span id="headerAvatarFallback">👤</span>
+              <img id="headerAvatarImg" class="w-full h-full object-cover hidden absolute inset-0" alt="Avatar" />
+            </div>
+            <div class="text-left hidden sm:block">
+              <div class="flex items-center gap-1.5 leading-none">
+                <span id="currentUserName" class="font-bold text-white text-xs">User</span>
+                <span id="currentUserRoleBadge" class="badge badge-teal text-[10px] py-0 px-1.5">Store Owner</span>
+              </div>
+              <span id="currentUserEmailNav" class="text-[10px] text-teal-200 block truncate max-w-[130px] mt-0.5">user@mail.com</span>
+            </div>
+            <span class="text-teal-300 text-[10px] ml-0.5">▼</span>
+          </button>
+
+          <!-- Profile Dropdown Menu Card -->
+          <div id="profileDropdownMenu" class="absolute right-0 top-full mt-2 w-64 bg-white rounded-2xl shadow-2xl border border-slate-200 py-1.5 hidden z-50 transition-all text-slate-800">
+            <div class="px-4 py-3 border-b border-slate-100 bg-slate-50/70 rounded-t-2xl flex items-center gap-3">
+              <div id="dropdownUserAvatar" class="w-10 h-10 rounded-full bg-teal-100 border border-teal-300 flex items-center justify-center text-lg font-bold shadow-sm shrink-0 overflow-hidden relative">
+                <span id="dropdownAvatarFallback">👤</span>
+                <img id="dropdownAvatarImg" class="w-full h-full object-cover hidden absolute inset-0" alt="Avatar" />
+              </div>
+              <div class="min-w-0 flex-1">
+                <p class="text-[10px] text-slate-400 uppercase tracking-wider font-bold">Signed in as</p>
+                <p id="dropdownUserName" class="font-extrabold text-slate-900 text-sm truncate mt-0.5">User</p>
+                <p id="dropdownUserEmail" class="text-xs text-slate-500 truncate">user@mail.com</p>
+              </div>
+            </div>
+
+            <div class="py-1">
+              <button id="btnOpenEditProfile" type="button" class="w-full text-left px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-teal-50 hover:text-teal-900 flex items-center gap-2.5 transition">
+                <span class="text-base">✏️</span>
+                <span>Edit Profile</span>
+              </button>
+
+              <button id="btnOpenChangePass" type="button" class="w-full text-left px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-teal-50 hover:text-teal-900 flex items-center gap-2.5 transition">
+                <span class="text-base">🔑</span>
+                <span>Change Password</span>
+              </button>
+            </div>
+
+            <div class="border-t border-slate-100 pt-1 mt-1">
+              <button id="dropdownLogoutBtn" type="button" class="w-full text-left px-4 py-2 text-xs font-bold text-red-600 hover:bg-red-50 flex items-center gap-2.5 transition">
+                <span class="text-base">🚪</span>
+                <span>Sign Out</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- ==================== 1. PUBLIC VISITOR LANDING HOMEPAGE ==================== -->
+  <section id="landingView" class="flex-1 max-w-7xl mx-auto px-4 py-8 md:py-12 space-y-12 w-full">
+    <!-- Hero Banner -->
+    <div class="card bg-gradient-to-br from-teal-950 via-teal-900 to-slate-900 text-white border-0 shadow-2xl p-6 md:p-12 rounded-3xl relative overflow-hidden">
+      <div class="max-w-3xl space-y-5 relative z-10">
+        <div class="inline-flex items-center gap-2 bg-teal-800/60 border border-teal-600/50 px-3 py-1 rounded-full text-xs font-bold text-teal-200">
+          <span>✨</span>
+          <span>Next-Gen Multi-Store Management Platform</span>
+        </div>
+
+        <h1 class="text-3xl sm:text-4xl md:text-5xl font-black tracking-tight leading-tight">
+          Manage Multiple Stores, Daily Sales & Inventory in One Clean System.
+        </h1>
+
+        <p class="text-sm md:text-base text-teal-100/90 leading-relaxed">
+          Store Manager is the public cloud platform built for store owners, retail varieties, and grocery businesses. Track daily sales with automatic morning/night calculations, monitor expenses and dues, audit price change histories, and analyze performance with interactive charts.
+        </p>
+
+        <div class="flex flex-wrap items-center gap-3 pt-2">
+          <button class="trigger-register btn btn-warning text-slate-900 font-extrabold text-sm px-6 py-3 shadow-lg hover:shadow-xl">
+            🚀 Create Store Account Free
+          </button>
+          <button class="trigger-sign-in btn btn-secondary text-slate-900 font-bold text-sm px-5 py-3 border-teal-400 bg-teal-50 hover:bg-white shadow">
+            🔑 Sign In to Your Store
+          </button>
+        </div>
+      </div>
+
+      <!-- Hero Decorative Icon -->
+      <div class="hidden lg:block absolute right-8 -bottom-8 opacity-15 text-[220px] select-none pointer-events-none">
+        🏪
+      </div>
+    </div>
+
+    <!-- 6 Core Feature Pillars -->
+    <div class="space-y-4">
+      <div class="text-center max-w-2xl mx-auto space-y-1">
+        <h2 class="text-2xl font-black text-slate-900 tracking-tight">Built for Real Store Operations</h2>
+        <p class="text-xs text-slate-500">Everything you need to track revenue, inventory, and multiple branch operations without friction.</p>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <!-- Feature 1 -->
+        <div class="card p-5 space-y-2.5 hover:border-teal-400 transition shadow-sm">
+          <div class="w-10 h-10 rounded-xl bg-teal-50 border border-teal-200 text-teal-800 flex items-center justify-center text-xl">
+            🏬
+          </div>
+          <h3 class="font-bold text-base text-slate-800">Multi-Store Management</h3>
+          <p class="text-xs text-slate-600 leading-relaxed">
+            Create and switch between multiple stores or branches effortlessly. Each store keeps its independent price list, daily sales history, and currency settings.
+          </p>
+        </div>
+
+        <!-- Feature 2 -->
+        <div class="card p-5 space-y-2.5 hover:border-teal-400 transition shadow-sm">
+          <div class="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 flex items-center justify-center text-xl">
+            💰
+          </div>
+          <h3 class="font-bold text-base text-slate-800">Automated Daily Sales</h3>
+          <p class="text-xs text-slate-600 leading-relaxed">
+            Record Morning Amount and Night Amount with real-time automatic calculation: <b>Night − Morning = Total Daily Sell</b>. Track expenses (khoroch) and customer dues with filter presets.
+          </p>
+        </div>
+
+        <!-- Feature 3 -->
+        <div class="card p-5 space-y-2.5 hover:border-teal-400 transition shadow-sm">
+          <div class="w-10 h-10 rounded-xl bg-cyan-50 border border-cyan-200 text-cyan-800 flex items-center justify-center text-xl">
+            🏷️
+          </div>
+          <h3 class="font-bold text-base text-slate-800">Price List & Price History</h3>
+          <p class="text-xs text-slate-600 leading-relaxed">
+            Smart real-time autocomplete suggestions as you type product names. Prevents duplicate records with warning alerts and maintains an audit timeline of past price changes.
+          </p>
+        </div>
+
+        <!-- Feature 4 -->
+        <div class="card p-5 space-y-2.5 hover:border-teal-400 transition shadow-sm">
+          <div class="w-10 h-10 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 flex items-center justify-center text-xl">
+            📈
+          </div>
+          <h3 class="font-bold text-base text-slate-800">Interactive Analytics & Charts</h3>
+          <p class="text-xs text-slate-600 leading-relaxed">
+            Visual charts powered by Chart.js with quick presets: Daily (7D), Weekly (14D), Monthly (30D), and Yearly. Hover over any bar or line for comprehensive details in ৳.
+          </p>
+        </div>
+
+        <!-- Feature 5 -->
+        <div class="card p-5 space-y-2.5 hover:border-teal-400 transition shadow-sm">
+          <div class="w-10 h-10 rounded-xl bg-indigo-50 border border-indigo-200 text-indigo-800 flex items-center justify-center text-xl">
+            📥
+          </div>
+          <h3 class="font-bold text-base text-slate-800">Excel Import & Demo Templates</h3>
+          <p class="text-xs text-slate-600 leading-relaxed">
+            One-click download of demo Excel sheets for both Products and Daily Sells. Import existing spreadsheets or export full backup workbooks with timestamps anytime.
+          </p>
+        </div>
+
+        <!-- Feature 6 -->
+        <div class="card p-5 space-y-2.5 hover:border-teal-400 transition shadow-sm">
+          <div class="w-10 h-10 rounded-xl bg-purple-50 border border-purple-200 text-purple-800 flex items-center justify-center text-xl">
+            🛡️
+          </div>
+          <h3 class="font-bold text-base text-slate-800">Master Admin & User Directory</h3>
+          <p class="text-xs text-slate-600 leading-relaxed">
+            Dedicated Master Admin dashboard with user directory, user's total created store counts, store inspection modal, account suspension/activation, and live IP audit logging.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="pt-6 border-t border-slate-200 text-center text-xs text-slate-500">
+      <p>© 2026 Store Manager. Multi-Store POS, Inventory & Analytics System.</p>
+    </footer>
+  </section>
+
+  <!-- ==================== 2. AUTHENTICATED APP VIEWS ==================== -->
+  <main id="appView" class="hidden max-w-7xl mx-auto px-4 py-5 space-y-5 flex-1 w-full">
+
+    <!-- ==================== TAB 1: DASHBOARD ==================== -->
+    <section id="home" class="panel space-y-5">
+      <!-- Store Header Banner -->
+      <div class="card bg-gradient-to-r from-teal-900 to-teal-800 text-white border-0 flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
+        <div>
+          <div class="flex items-center gap-2">
+            <span class="badge badge-amber text-xs">Active Store</span>
+            <span id="dashStoreCategory" class="text-xs text-teal-200">Retail & Varieties</span>
+          </div>
+          <h2 id="dashStoreName" class="text-xl md:text-2xl font-extrabold mt-1">Oboshor Varieties Store</h2>
+          <p id="dashStoreMeta" class="text-xs text-teal-200 mt-0.5">Owner: <span id="dashStoreOwner">Oboshor</span> · Currency: ৳</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <button id="btnJumpToInvite" class="btn btn-secondary border-teal-600 bg-teal-800/80 hover:bg-teal-700 text-teal-100 text-xs shadow-sm">
+            👥 Store Access
+          </button>
+          <button id="quickAddSellBtn" class="btn btn-warning text-slate-900 font-bold text-xs shadow">
+            + Daily Sell
+          </button>
+          <button id="quickAddProductBtn" class="btn btn-primary bg-teal-700 hover:bg-teal-600 border border-teal-500 text-xs">
+            + Add Product
+          </button>
+        </div>
+      </div>
+
+      <!-- 4 Top High-Level Summary Cards -->
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
+        <div class="card border-l-4 border-l-teal-600">
+          <div class="flex justify-between items-start">
+            <p class="label">Today's Sell</p>
+            <span class="text-xs text-teal-700 font-semibold bg-teal-50 px-2 py-0.5 rounded-full">Today</span>
+          </div>
+          <p id="mToday" class="metric mt-1">৳0</p>
+          <p id="mTodaySub" class="text-[11px] text-slate-500 mt-1">Est. Profit: ৳0</p>
+        </div>
+
+        <div class="card border-l-4 border-l-emerald-600">
+          <div class="flex justify-between items-start">
+            <p class="label">This Month</p>
+            <span class="text-xs text-emerald-700 font-semibold bg-emerald-50 px-2 py-0.5 rounded-full">Month</span>
+          </div>
+          <p id="mMonth" class="metric mt-1">৳0</p>
+          <p id="mMonthSub" class="text-[11px] text-slate-500 mt-1">Est. Profit: ৳0</p>
+        </div>
+
+        <div class="card border-l-4 border-l-cyan-600">
+          <div class="flex justify-between items-start">
+            <p class="label">This Year</p>
+            <span class="text-xs text-cyan-700 font-semibold bg-cyan-50 px-2 py-0.5 rounded-full">Year</span>
+          </div>
+          <p id="mYear" class="metric mt-1">৳0</p>
+          <p id="mYearSub" class="text-[11px] text-slate-500 mt-1">Est. Profit: ৳0</p>
+        </div>
+
+        <div class="card border-l-4 border-l-amber-500">
+          <div class="flex justify-between items-start">
+            <p class="label">All Time Sells</p>
+            <span class="text-xs text-amber-700 font-semibold bg-amber-50 px-2 py-0.5 rounded-full">Total</span>
+          </div>
+          <p id="mAll" class="metric mt-1">৳0</p>
+          <p id="mAllSub" class="text-[11px] text-slate-500 mt-1">All recorded sells</p>
+        </div>
+      </div>
+
+      <!-- Interactive Visual Chart Card -->
+      <div class="card">
+        <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+          <div>
+            <h2 class="font-bold text-base md:text-lg text-slate-800 flex items-center gap-2">
+              <span>📈</span> Sales & Performance Chart
+            </h2>
+            <p class="text-xs text-slate-500">Filter by Daily, Weekly, Monthly, or Yearly breakdown. Hover chart elements for details.</p>
+          </div>
+
+          <!-- Chart Controls: Presets, Range & Metric Dropdowns -->
+          <div class="flex flex-wrap items-center gap-2">
+            <!-- Filter Option Presets -->
+            <div class="flex items-center gap-1 bg-slate-100 p-1 rounded-lg">
+              <button class="filter-pill active" data-chart-filter="all">All</button>
+              <button class="filter-pill" data-chart-filter="daily">Daily (7D)</button>
+              <button class="filter-pill" data-chart-filter="weekly">Weekly (14D)</button>
+              <button class="filter-pill" data-chart-filter="monthly">Monthly (30D)</button>
+              <button class="filter-pill" data-chart-filter="yearly">Yearly</button>
+            </div>
+
+            <!-- Granular Range Dropdown -->
+            <select id="chartRange" class="input !w-auto !py-1 text-xs font-medium cursor-pointer">
+              <option value="last7">Last 7 Days (Daily)</option>
+              <option value="last14" selected>Last 14 Days (Weekly)</option>
+              <option value="last30">Last 30 Days (Monthly)</option>
+              <option value="thisMonth">This Month to Date</option>
+              <option value="last3Months">Last 3 Months</option>
+              <option value="last6Months">Last 6 Months</option>
+              <option value="thisYear">This Year (Monthly)</option>
+              <option value="allYears">All Years</option>
+            </select>
+
+            <!-- Metric Dropdown -->
+            <select id="chartMetric" class="input !w-auto !py-1 text-xs font-medium cursor-pointer">
+              <option value="totalSell" selected>Total Sell (৳)</option>
+              <option value="profit">Estimated Profit (৳)</option>
+              <option value="compare">Comparative (Sell & Profit)</option>
+              <option value="morningNight">Morning vs Night</option>
+              <option value="khorochDue">Expenses & Due</option>
+            </select>
+
+            <!-- Profit Percentage Input -->
+            <div class="flex items-center gap-1 bg-slate-50 px-2 py-1 rounded-lg border border-slate-200">
+              <label for="profitPct" class="text-xs text-slate-600 font-medium">Profit %:</label>
+              <input id="profitPct" type="number" min="0" max="100" class="input !w-14 !h-7 !py-0 !px-1.5 text-xs text-center font-bold" />
+            </div>
+          </div>
+        </div>
+
+        <!-- Canvas Chart Area -->
+        <div class="chart-container mt-4">
+          <canvas id="salesChart"></canvas>
+        </div>
+
+        <!-- Selected Period KPI Summary Pills -->
+        <div id="chartKPIs" class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mt-4 pt-3 border-t border-slate-100 text-xs">
+          <div class="p-2.5 rounded-lg bg-teal-50 border border-teal-100 text-teal-900">
+            <span class="text-slate-500 block text-[10px] font-semibold uppercase">Period Total Sell</span>
+            <span id="kpiTotalSell" class="font-bold text-sm md:text-base">৳0</span>
+          </div>
+          <div class="p-2.5 rounded-lg bg-emerald-50 border border-emerald-100 text-emerald-900">
+            <span class="text-slate-500 block text-[10px] font-semibold uppercase">Est. Period Profit</span>
+            <span id="kpiTotalProfit" class="font-bold text-sm md:text-base">৳0</span>
+          </div>
+          <div class="p-2.5 rounded-lg bg-slate-50 border border-slate-200 text-slate-800">
+            <span class="text-slate-500 block text-[10px] font-semibold uppercase">Daily Average</span>
+            <span id="kpiDailyAvg" class="font-bold text-sm md:text-base">৳0</span>
+          </div>
+          <div class="p-2.5 rounded-lg bg-amber-50 border border-amber-100 text-amber-900">
+            <span class="text-slate-500 block text-[10px] font-semibold uppercase">Peak Day Sell</span>
+            <span id="kpiPeakDay" class="font-bold text-sm md:text-base">৳0</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Yearly Breakdown Table -->
+      <div class="card">
+        <div class="flex justify-between items-center mb-2">
+          <h2 class="font-semibold text-slate-800">Yearly Performance Breakdown</h2>
+          <span class="text-xs text-slate-500">Historical performance</span>
+        </div>
+        <div id="yearRows" class="divide-y divide-slate-100"></div>
+      </div>
+    </section>
+
+    <!-- ==================== TAB 2: DAILY SELLS ==================== -->
+    <section id="sells" class="panel hidden space-y-4">
+      <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-3">
+        <button id="addSell" class="btn btn-primary shadow-sm shrink-0">
+          <span>➕</span> Add Daily Sell
+        </button>
+
+        <!-- Sorting & Filter Controls -->
+        <div class="flex flex-wrap items-center gap-2 w-full lg:w-auto">
+          <!-- Sorting Dropdown -->
+          <div class="flex items-center gap-1.5">
+            <span class="text-xs text-slate-500 font-medium whitespace-nowrap">Sort:</span>
+            <select id="sSort" class="input !w-auto text-xs font-semibold cursor-pointer">
+              <option value="date_desc" selected>Date: Newest First</option>
+              <option value="date_asc">Date: Oldest First</option>
+              <option value="sell_desc">Total Sell: High to Low</option>
+              <option value="sell_asc">Total Sell: Low to High</option>
+              <option value="khoroch_desc">Expense (Khoroch): High to Low</option>
+              <option value="due_desc">Due: High to Low</option>
+            </select>
+          </div>
+
+          <!-- Quick Period Presets -->
+          <div class="flex items-center gap-1 bg-slate-50 p-1 rounded-lg border border-slate-200">
+            <button class="filter-pill sell-filter-preset active text-xs" data-preset="all">All</button>
+            <button class="filter-pill sell-filter-preset text-xs" data-preset="today">Today</button>
+            <button class="filter-pill sell-filter-preset text-xs" data-preset="week">This Week</button>
+            <button class="filter-pill sell-filter-preset text-xs" data-preset="month">This Month</button>
+            <button class="filter-pill sell-filter-preset text-xs" data-preset="year">This Year</button>
+          </div>
+
+          <!-- Year & Month Selectors -->
+          <select id="fYear" class="input !w-auto text-xs cursor-pointer"></select>
+          <select id="fMonth" class="input !w-auto text-xs cursor-pointer"></select>
+          <input id="sSearch" type="text" placeholder="Search notes or date..." class="input !w-40 text-xs" />
+        </div>
+      </div>
+
+      <!-- Sells Summary Counter -->
+      <div class="flex items-center justify-between px-1">
+        <p id="sellSummary" class="text-xs md:text-sm text-slate-600 font-medium"></p>
+        <span class="badge badge-teal text-[11px]">Real-time synced</span>
+      </div>
+
+      <!-- Sells List Rows -->
+      <div id="sellRows" class="card !p-0 overflow-hidden divide-y divide-slate-100"></div>
+      <button id="moreSells" class="btn btn-secondary w-full hidden">Show more records</button>
+    </section>
+
+    <!-- ==================== TAB 3: PRICE LIST ==================== -->
+    <section id="prices" class="panel hidden space-y-4">
+      <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+        <button id="addProduct" class="btn btn-primary shadow-sm shrink-0">
+          <span>➕</span> Add Product
+        </button>
+
+        <div class="flex flex-wrap items-center gap-2 w-full sm:w-auto flex-1 max-w-xl">
+          <!-- Sorting Dropdown -->
+          <div class="flex items-center gap-1.5 shrink-0">
+            <span class="text-xs text-slate-500 font-medium whitespace-nowrap">Sort:</span>
+            <select id="pSort" class="input !w-auto text-xs font-semibold cursor-pointer">
+              <option value="name_asc" selected>Name: A → Z</option>
+              <option value="name_desc">Name: Z → A</option>
+              <option value="sell_asc">Sell Price: Low to High</option>
+              <option value="sell_desc">Sell Price: High to Low</option>
+              <option value="cost_asc">Cost Price: Low to High</option>
+              <option value="cost_desc">Cost Price: High to Low</option>
+              <option value="profit_desc">Profit: Highest First</option>
+              <option value="margin_desc">Margin %: Highest First</option>
+              <option value="date_desc">Date Added: Newest First</option>
+              <option value="date_asc">Date Added: Oldest First</option>
+            </select>
+          </div>
+
+          <!-- Product Search -->
+          <div class="relative flex-1 min-w-[160px]">
+            <input id="pSearch" class="input !pl-9 text-xs" placeholder="Search product name or keyword…" />
+            <span class="absolute left-3 top-2.5 text-slate-400 text-xs">🔍</span>
+            <button id="pClear" class="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 hidden text-xs">✕</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-between px-1">
+        <p id="prodSummary" class="text-xs md:text-sm text-slate-600 font-medium"></p>
+        <span class="text-xs text-slate-400">💡 Click product name to inspect previous price history</span>
+      </div>
+
+      <!-- Products List Rows -->
+      <div id="productRows" class="card !p-0 overflow-hidden divide-y divide-slate-100"></div>
+      <button id="moreProducts" class="btn btn-secondary w-full hidden">Show more products</button>
+    </section>
+
+    <!-- ==================== TAB 4: IMPORT / EXPORT & STORE SETTINGS ==================== -->
+    <section id="data" class="panel hidden space-y-5">
+      <!-- Demo Sheet Download Cards -->
+      <div class="card bg-teal-50/60 border-teal-200 space-y-3">
+        <div class="flex items-center justify-between pb-2 border-b border-teal-100">
+          <div class="flex items-center gap-2">
+            <span class="text-xl">📥</span>
+            <div>
+              <h2 class="font-bold text-teal-900">Download Demo Import Templates</h2>
+              <p class="text-xs text-teal-700">Get clean pre-formatted Excel templates ready to fill with your records and import into Store Manager.</p>
+            </div>
+          </div>
+          <span class="badge badge-teal">Templates</span>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+          <button id="btnDownloadDemoProducts" class="btn btn-secondary border-teal-300 text-teal-900 hover:bg-teal-100/70 font-semibold text-xs justify-start px-4">
+            📄 Download Demo Products Template (.xlsx)
+          </button>
+          <button id="btnDownloadDemoSells" class="btn btn-secondary border-teal-300 text-teal-900 hover:bg-teal-100/70 font-semibold text-xs justify-start px-4">
+            📊 Download Demo Daily Sells Template (.xlsx)
+          </button>
+        </div>
+      </div>
+
+      <!-- Import & Backup Grid (Dedicated upload fields for Sells and Products) -->
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <!-- 1. Import Daily Sells File -->
+        <div class="card space-y-3 border-teal-100 hover:border-teal-300 transition">
+          <div class="w-9 h-9 rounded-lg bg-teal-50 border border-teal-200 text-teal-800 flex items-center justify-center text-lg">
+            💰
+          </div>
+          <h2 class="font-bold text-slate-800">1. Import Daily Sells</h2>
+          <p class="text-xs text-slate-600">
+            Upload your daily sales sheet (<code class="bg-slate-100 px-1 py-0.5 rounded text-[11px]">.xlsx</code>, <code class="bg-slate-100 px-1 py-0.5 rounded text-[11px]">.csv</code>). Required columns: <b>Date</b>, <b>Morning Amount</b>, <b>Night Amount</b> (optional: <i>Khoroch</i>, <i>Due</i>, <i>Notes</i>).
+          </p>
+          <div class="space-y-2 pt-1">
+            <label class="btn btn-primary w-full cursor-pointer text-xs font-bold">
+              <span>📊 Choose Daily Sells File</span>
+              <input id="importSellsFile" type="file" accept=".xlsx,.xls,.csv" class="hidden" />
+            </label>
+            <button id="btnDownloadDemoSellsCard" class="btn btn-secondary w-full text-xs text-teal-800 border-teal-200 hover:bg-teal-50 font-medium">
+              📥 Download Sells Template (.xlsx)
+            </button>
+          </div>
+        </div>
+
+        <!-- 2. Import Product List File -->
+        <div class="card space-y-3 border-emerald-100 hover:border-emerald-300 transition">
+          <div class="w-9 h-9 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 flex items-center justify-center text-lg">
+            🏷️
+          </div>
+          <h2 class="font-bold text-slate-800">2. Import Product List</h2>
+          <p class="text-xs text-slate-600">
+            Upload your product price list (<code class="bg-slate-100 px-1 py-0.5 rounded text-[11px]">.xlsx</code>, <code class="bg-slate-100 px-1 py-0.5 rounded text-[11px]">.csv</code>). Required columns: <b>Product Name</b>, <b>Cost Price</b>, <b>Sell Price</b>.
+          </p>
+          <div class="space-y-2 pt-1">
+            <label class="btn btn-primary bg-emerald-700 hover:bg-emerald-800 w-full cursor-pointer text-xs font-bold">
+              <span>📦 Choose Product List File</span>
+              <input id="importProductsFile" type="file" accept=".xlsx,.xls,.csv" class="hidden" />
+            </label>
+            <button id="btnDownloadDemoProductsCard" class="btn btn-secondary w-full text-xs text-emerald-800 border-emerald-200 hover:bg-emerald-50 font-medium">
+              📥 Download Products Template (.xlsx)
+            </button>
+          </div>
+        </div>
+
+        <!-- 3. Export backup -->
+        <div class="card space-y-3 border-amber-100 hover:border-amber-300 transition">
+          <div class="w-9 h-9 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 flex items-center justify-center text-lg">
+            💾
+          </div>
+          <h2 class="font-bold text-slate-800">3. Download Excel Backup</h2>
+          <p class="text-xs text-slate-600">
+            Exports all products, daily sales, cost margins, and timestamps into an organized multi-sheet Excel spreadsheet for offline backup.
+          </p>
+          <div class="pt-1">
+            <button id="exportBtn" class="btn btn-warning w-full !text-slate-900 font-bold text-xs shadow-sm">
+              💾 Download Full Backup (.xlsx)
+            </button>
+            <p id="exportStatusText" class="text-[11px] text-slate-400 mt-2 text-center">Verified two-sheet Excel export</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Current Store Details Card -->
+      <div class="card space-y-3">
+        <div class="flex items-center justify-between pb-2 border-b border-slate-100">
+          <div class="flex items-center gap-2">
+            <span class="text-xl">🏬</span>
+            <div>
+              <h2 class="font-bold text-slate-800">Current Store Settings</h2>
+              <p class="text-xs text-slate-500">Edit active store details or switch between multiple stores.</p>
+            </div>
+          </div>
+          <button id="btnCreateStoreFromSettings" class="btn btn-secondary text-xs">
+            + Create New Store
+          </button>
+        </div>
+
+        <form id="storeSettingsForm" class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs pt-1">
+          <div>
+            <label class="label">Store Name</label>
+            <input id="setStoreName" class="input text-xs" required />
+          </div>
+          <div>
+            <label class="label">Category / Type</label>
+            <input id="setStoreCategory" class="input text-xs" placeholder="e.g. Varieties Store, Grocery, Pharmacy" />
+          </div>
+          <div>
+            <label class="label">Contact Phone</label>
+            <input id="setStorePhone" class="input text-xs" placeholder="e.g. 01700000000" />
+          </div>
+          <div>
+            <label class="label">Address / Location</label>
+            <input id="setStoreAddress" class="input text-xs" placeholder="Store address" />
+          </div>
+          <div class="sm:col-span-2 flex items-center justify-between pt-2 border-t border-slate-100">
+            <button type="button" id="btnDeleteStoreFromSettings" class="btn btn-secondary border-red-200 text-red-600 hover:bg-red-50 text-xs font-semibold">
+              🗑️ Delete Store
+            </button>
+            <button type="submit" class="btn btn-primary text-xs font-bold">Save Store Info</button>
+          </div>
+        </form>
+      </div>
+
+      <!-- STORE ACCESS & COLLABORATORS CARD (Invite Users) -->
+      <div class="card space-y-3 border-teal-100">
+        <div class="flex items-center justify-between pb-2 border-b border-slate-100">
+          <div class="flex items-center gap-2">
+            <span class="text-xl">👥</span>
+            <div>
+              <h2 class="font-bold text-slate-800">Store Access & Collaborators</h2>
+              <p class="text-xs text-slate-500">Grant other registered users permission to access and manage this store.</p>
+            </div>
+          </div>
+          <span id="collaboratorRoleBadge" class="badge badge-teal">Owner</span>
+        </div>
+
+        <div id="collaboratorInviteNotice" class="text-xs text-slate-600">
+          Invited users can view and record daily sales, manage price lists, and view dashboard analytics for this store.
+        </div>
+
+        <!-- Invite User Form -->
+        <form id="inviteCollaboratorForm" class="pt-1 space-y-2">
+          <div class="flex flex-col sm:flex-row items-stretch sm:items-end gap-2">
+            <div class="flex-1">
+              <label class="label" for="inviteUserInput">Invite User by User ID or Email</label>
+              <input id="inviteUserInput" class="input text-xs" placeholder="e.g. employee_user or coworker@gmail.com" required />
+            </div>
+            <button type="submit" id="btnGrantStoreAccess" class="btn btn-primary text-xs font-bold shrink-0">
+              ➕ Grant Store Access
+            </button>
+          </div>
+          <p id="inviteError" class="text-xs text-red-600 font-medium hidden"></p>
+          <p id="inviteSuccess" class="text-xs text-emerald-700 font-medium hidden"></p>
+        </form>
+
+        <!-- Collaborators List -->
+        <div class="space-y-2 pt-2 border-t border-slate-100">
+          <div class="flex items-center justify-between">
+            <h3 class="text-xs font-bold text-slate-700 uppercase tracking-wider">People with Access to This Store</h3>
+            <span id="collaboratorsCount" class="text-xs text-slate-500 font-medium">1 member</span>
+          </div>
+          <div id="collaboratorsList" class="space-y-2">
+            <!-- Dynamic collaborator cards will render here -->
+          </div>
+        </div>
+      </div>
+
+      <!-- DANGER ZONE: DELETE RECORDS & STORE -->
+      <div class="card border-red-200 bg-red-50/40 space-y-3">
+        <div class="flex items-center justify-between pb-2 border-b border-red-100">
+          <div class="flex items-center gap-2">
+            <span class="text-xl text-red-600">⚠️</span>
+            <div>
+              <h2 class="font-bold text-red-800">Danger Zone — Delete Records & Store</h2>
+              <p class="text-xs text-red-600">Permanently deletes records or the entire store. <b>Requires User ID & Password authorization.</b></p>
+            </div>
+          </div>
+          <span class="badge badge-red">Sensitive</span>
+        </div>
+
+        <p class="text-xs text-slate-600">
+          Be extremely cautious. Once records or stores are deleted, they cannot be recovered unless you have a downloaded backup.
+        </p>
+
+        <div class="flex flex-wrap gap-2 pt-1">
+          <button id="btnDeleteSells" class="btn btn-secondary border-red-200 text-red-700 hover:bg-red-100 text-xs">
+            🗑️ Delete All Daily Sells
+          </button>
+          <button id="btnDeleteProducts" class="btn btn-secondary border-red-200 text-red-700 hover:bg-red-100 text-xs">
+            🗑️ Delete All Products
+          </button>
+          <button id="btnDeleteEverything" class="btn btn-secondary border-red-300 text-red-800 hover:bg-red-100 text-xs font-semibold">
+            ⚠️ Delete Everything in Store
+          </button>
+          <button id="btnDeleteStore" class="btn btn-danger text-xs font-bold">
+            🚨 Delete Store Permanently
+          </button>
+        </div>
+      </div>
+
+      <p id="status" class="text-xs font-semibold text-teal-800 text-center py-1"></p>
+    </section>
+  </main>
+
+  <!-- ==================== 3. MASTER ADMIN DASHBOARD VIEW ==================== -->
+  <section id="admin" class="hidden max-w-7xl mx-auto px-4 py-5 space-y-5 flex-1 w-full">
+    <!-- Admin Metric Overview -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div class="card border-l-4 border-l-amber-500">
+        <p class="label">Total Users</p>
+        <p id="admTotalUsers" class="metric text-amber-600">0</p>
+        <p class="text-[11px] text-slate-500">Registered platform users</p>
+      </div>
+      <div class="card border-l-4 border-l-teal-600">
+        <p class="label">Total Stores</p>
+        <p id="admTotalStores" class="metric text-teal-600">0</p>
+        <p class="text-[11px] text-slate-500">Active managed stores</p>
+      </div>
+      <div class="card border-l-4 border-l-cyan-600">
+        <p class="label">Platform Roles</p>
+        <p class="text-lg font-bold text-cyan-700 mt-1">Multi-Tenant</p>
+        <p class="text-[11px] text-slate-500">Master Admin & Store Owners</p>
+      </div>
+      <div class="card border-l-4 border-l-purple-600">
+        <p class="label">Logged In As</p>
+        <p id="admAdminIdText" class="text-lg font-bold text-purple-700 truncate mt-1">Admin</p>
+        <p class="text-[11px] text-slate-500">Master Admin Level</p>
+      </div>
+    </div>
+
+    <!-- User Management Directory -->
+    <div class="card space-y-3">
+      <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 pb-2 border-b border-slate-100">
+        <div>
+          <h2 class="font-bold text-slate-800 text-base">User Directory & Store Inspection</h2>
+          <p class="text-xs text-slate-500">View users, see total created stores count, click any user name to view store list, login as user, or modify access.</p>
+        </div>
+        <input id="admUserSearch" class="input !w-56 !py-1 text-xs" placeholder="Search user ID or email..." />
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>User ID (Click to View Stores)</th>
+              <th>Email</th>
+              <th>Role</th>
+              <th>Status</th>
+              <th>Verification</th>
+              <th>Created Stores</th>
+              <th>Registered</th>
+              <th>Last Login IP</th>
+              <th class="text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="admUserTableBody">
+            <tr><td colspan="9" class="text-center py-4 text-slate-400">Loading user list...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Live Audit / Activity Log with IP -->
+    <div class="card space-y-3">
+      <div class="flex justify-between items-center pb-2 border-b border-slate-100">
+        <div>
+          <h2 class="font-bold text-slate-800 text-base">Live Activity & IP Logs</h2>
+          <p class="text-xs text-slate-500">System audit logs recording login, store creations, imports, and modifications with client IP.</p>
+        </div>
+        <button id="admRefreshLogsBtn" class="btn btn-secondary text-xs">🔄 Refresh Logs</button>
+      </div>
+
+      <div class="overflow-x-auto max-h-96">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Timestamp</th>
+              <th>User ID</th>
+              <th>Action</th>
+              <th>Details</th>
+              <th>IP Address</th>
+            </tr>
+          </thead>
+          <tbody id="admLogTableBody">
+            <tr><td colspan="5" class="text-center py-4 text-slate-400">Loading activity logs...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Master Admin Credentials Update -->
+    <div class="card space-y-3">
+      <div class="pb-2 border-b border-slate-100">
+        <h2 class="font-bold text-slate-800 text-base">Update Master Admin Credentials</h2>
+        <p class="text-xs text-slate-500">You can update your Master Admin email or password here at any time.</p>
+      </div>
+
+      <form id="admUpdateCredsForm" class="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs pt-1">
+        <div>
+          <label class="label">Admin Email</label>
+          <input id="admNewEmail" type="email" class="input text-xs" value="rafidmahi.007@gmail.com" required />
+        </div>
+        <div>
+          <label class="label">Current Password</label>
+          <div class="relative">
+            <input id="admCurrentPass" type="password" class="input !pr-9 text-xs" required />
+            <button type="button" class="password-toggle-btn absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-teal-700 p-0.5" title="Show / Hide Password" tabindex="-1">
+              <svg class="eye-open w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+              <svg class="eye-closed w-4 h-4 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18"/></svg>
+            </button>
+          </div>
+        </div>
+        <div>
+          <label class="label">New Password (leave blank if keeping)</label>
+          <div class="relative">
+            <input id="admNewPass" type="password" class="input !pr-9 text-xs" placeholder="New password" />
+            <button type="button" class="password-toggle-btn absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-teal-700 p-0.5" title="Show / Hide Password" tabindex="-1">
+              <svg class="eye-open w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+              <svg class="eye-closed w-4 h-4 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18"/></svg>
+            </button>
+          </div>
+        </div>
+        <div class="sm:col-span-3 flex justify-end">
+          <button type="submit" class="btn btn-primary text-xs">Save Master Admin Info</button>
+        </div>
+      </form>
+    </div>
+  </section>
+
+  <!-- ==================== 4. MODALS & DIALOGS ==================== -->
+
+  <!-- AUTH MODAL (Login / Register / Forgot Password) -->
+  <div id="authOverlay" class="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4 hidden">
+    <!-- Auth Card -->
+    <div id="authBox" class="bg-white rounded-2xl shadow-2xl border border-slate-100 max-w-md w-full p-6 text-center space-y-4 relative">
+      <!-- Close modal button -->
+      <button id="closeAuthModal" type="button" class="absolute top-4 right-4 text-slate-400 hover:text-slate-600 text-lg transition font-bold p-1">
+        ✕
+      </button>
+
+      <div class="w-14 h-14 rounded-2xl bg-teal-50 border border-teal-200 text-teal-800 flex items-center justify-center text-3xl mx-auto shadow-inner overflow-hidden">
+        <img src="logo.png" alt="Store Manager" class="w-full h-full object-cover" onerror="this.outerHTML='🏪'" />
+      </div>
+      <div>
+        <h2 class="text-xl font-extrabold text-slate-800">Store Manager</h2>
+        <p class="text-xs text-slate-500 mt-1">Multi-store inventory & daily sales management platform</p>
+      </div>
+
+      <!-- Auth Mode Tabs (Sign In / Register) -->
+      <div class="flex rounded-lg bg-slate-100 p-1 border border-slate-200">
+        <button id="authTabSignIn" class="flex-1 py-1.5 text-xs font-bold rounded-md bg-white text-teal-900 shadow-sm transition">
+          Sign In
+        </button>
+        <button id="authTabRegister" class="flex-1 py-1.5 text-xs font-medium text-slate-600 rounded-md hover:text-slate-900 transition">
+          Create Account
+        </button>
+      </div>
+
+      <!-- Google Sign In Button -->
+      <button id="btnGoogleSignIn" type="button" class="btn btn-google w-full text-xs font-semibold flex items-center justify-center gap-2 py-2 border border-slate-300 rounded-xl hover:bg-slate-50 shadow-sm transition">
+        <svg class="w-4 h-4" viewBox="0 0 24 24">
+          <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+          <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+          <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+          <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+        </svg>
+        <span>Continue with Google</span>
+      </button>
+
+      <div class="flex items-center gap-2 my-2 text-slate-400 text-[11px]">
+        <div class="flex-1 h-[1px] bg-slate-200"></div>
+        <span>or with User ID / Email</span>
+        <div class="flex-1 h-[1px] bg-slate-200"></div>
+      </div>
+
+      <!-- FORM 1: SIGN IN -->
+      <form id="signInForm" class="text-left space-y-3">
+        <div>
+          <label class="label" for="loginId">User ID or Email</label>
+          <input id="loginId" class="input text-xs" placeholder="e.g. Oboshor or oboshor24@gmail.com" required autocomplete="username" />
+        </div>
+        <div>
+          <label class="label" for="loginPass">Password</label>
+          <div class="relative">
+            <input id="loginPass" type="password" class="input !pr-9 text-xs" placeholder="••••••••" required autocomplete="current-password" />
+            <button type="button" class="password-toggle-btn absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-teal-700 p-0.5" title="Show / Hide Password" tabindex="-1">
+              <svg class="eye-open w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+              <svg class="eye-closed w-4 h-4 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="flex items-center justify-between text-xs pt-1">
+          <label class="flex items-center gap-1.5 cursor-pointer text-slate-600">
+            <input id="loginRemember" type="checkbox" class="rounded border-slate-300 text-teal-600 focus:ring-teal-500" checked />
+            Remember me
+          </label>
+          <button type="button" id="btnForgotPass" class="text-teal-700 font-semibold hover:underline">Forgot Password?</button>
+        </div>
+
+        <p id="loginError" class="text-xs text-red-600 font-medium hidden pt-1"></p>
+
+        <button type="submit" class="btn btn-primary w-full shadow-md font-semibold text-xs mt-2">
+          Sign In to Store Manager
+        </button>
+      </form>
+
+      <!-- FORM 2: REGISTER ACCOUNT -->
+      <form id="registerForm" class="text-left space-y-2.5 hidden">
+        <div>
+          <label class="label" for="regUserId">Choose Unique User ID</label>
+          <input id="regUserId" class="input text-xs" placeholder="e.g. MyShopUser" required />
+        </div>
+        <div>
+          <label class="label" for="regEmail">Email Address</label>
+          <input id="regEmail" type="email" class="input text-xs" placeholder="yourname@gmail.com" required />
+        </div>
+        <div>
+          <label class="label" for="regStoreName">Initial Store Name</label>
+          <input id="regStoreName" class="input text-xs" placeholder="e.g. Central Varieties Store" required />
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="label" for="regPass">Password</label>
+            <div class="relative">
+              <input id="regPass" type="password" class="input !pr-9 text-xs" minlength="6" placeholder="Min 6 chars" required />
+              <button type="button" class="password-toggle-btn absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-teal-700 p-0.5" title="Show / Hide Password" tabindex="-1">
+                <svg class="eye-open w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                <svg class="eye-closed w-4 h-4 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18"/></svg>
+              </button>
+            </div>
+          </div>
+          <div>
+            <label class="label" for="regPassConfirm">Confirm Password</label>
+            <div class="relative">
+              <input id="regPassConfirm" type="password" class="input !pr-9 text-xs" minlength="6" placeholder="Repeat" required />
+              <button type="button" class="password-toggle-btn absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-teal-700 p-0.5" title="Show / Hide Password" tabindex="-1">
+                <svg class="eye-open w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                <svg class="eye-closed w-4 h-4 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <p id="regError" class="text-xs text-red-600 font-medium hidden"></p>
+
+        <button type="submit" class="btn btn-primary w-full shadow-md font-semibold text-xs mt-2">
+          Create Account & Send Verification Email
+        </button>
+      </form>
+
+      <!-- FORM 3: FORGOT PASSWORD (OTP SUBMISSION & PASSWORD RESET) -->
+      <form id="forgotForm" class="text-left space-y-3 hidden">
+        <div class="bg-teal-50 border border-teal-100 p-2.5 rounded-lg text-xs text-teal-900 leading-relaxed">
+          Enter your registered Email or User ID. We will dispatch a 6-digit verification code directly to your email inbox.
+        </div>
+
+        <!-- STEP 1: Enter Identifier -->
+        <div id="forgotStep1" class="space-y-3">
+          <div>
+            <label class="label" for="forgotIdentifier">Email or User ID</label>
+            <input id="forgotIdentifier" class="input text-xs" placeholder="e.g. oboshor24@gmail.com" required />
+          </div>
+
+          <p id="forgotError" class="text-xs text-red-600 font-bold hidden"></p>
+
+          <div class="flex gap-2 pt-1">
+            <button type="button" id="backToSignInBtn" class="btn btn-secondary flex-1 text-xs">Back to Sign In</button>
+            <button type="submit" id="btnSendResetCode" class="btn btn-primary flex-1 text-xs font-semibold">Send Reset Code</button>
+          </div>
+        </div>
+
+        <!-- STEP 2: Submit OTP & Set New Password -->
+        <div id="forgotStep2" class="space-y-3 hidden">
+          <p id="forgotSuccess" class="text-xs text-emerald-700 font-semibold"></p>
+
+          <div>
+            <label class="label" for="forgotOtpInput">Enter 6-Digit Code from Email</label>
+            <input id="forgotOtpInput" type="text" maxlength="6" class="input text-center font-mono font-bold tracking-widest text-lg bg-slate-50 border-teal-500" placeholder="000000" />
+          </div>
+
+          <div>
+            <label class="label" for="forgotNewPass">New Password</label>
+            <div class="relative">
+              <input id="forgotNewPass" type="password" class="input !pr-9 text-xs" minlength="6" placeholder="Min 6 characters" />
+              <button type="button" class="password-toggle-btn absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-teal-700 p-0.5" title="Show / Hide Password" tabindex="-1">
+                <svg class="eye-open w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                <svg class="eye-closed w-4 h-4 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <p id="forgotStep2Error" class="text-xs text-red-600 font-bold hidden"></p>
+
+          <div class="flex gap-2 pt-1">
+            <button type="button" id="btnBackToForgotStep1" class="btn btn-secondary flex-1 text-xs">Back</button>
+            <button type="button" id="btnVerifyOtpAndResetPass" class="btn btn-primary flex-1 text-xs font-bold">Verify & Reset Password</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- USER STORES INSPECTOR MODAL (Admin: Click user name to view store list) -->
+  <dialog id="userStoresModal" class="dialog-wide">
+    <div class="dlg">
+      <div class="flex justify-between items-start pb-3 border-b border-slate-100">
+        <div>
+          <div class="flex items-center gap-2">
+            <span class="text-xl">🏬</span>
+            <h2 id="userStoresModalTitle" class="font-bold text-lg text-slate-800">User Stores</h2>
+          </div>
+          <p id="userStoresModalMeta" class="text-xs text-slate-500 mt-0.5">List of all stores created by this account.</p>
+        </div>
+        <button type="button" class="text-slate-400 hover:text-slate-600 text-lg close p-1">✕</button>
+      </div>
+
+      <div id="userStoresListContainer" class="max-h-[60vh] overflow-y-auto space-y-3 py-3">
+        <!-- Rendered dynamically -->
+      </div>
+
+      <div class="flex justify-end pt-3 border-t border-slate-100">
+        <button type="button" class="btn btn-secondary close text-xs">Close</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- ADD STORE MODAL -->
+  <dialog id="storeDialog">
+    <form id="addStoreForm" class="dlg">
+      <div class="flex justify-between items-center pb-2 border-b border-slate-100">
+        <h2 class="font-bold text-base text-slate-800">Add New Store</h2>
+        <button type="button" class="text-slate-400 hover:text-slate-600 text-lg close">✕</button>
+      </div>
+
+      <label class="label" for="newStoreName">Store Name</label>
+      <input id="newStoreName" class="input text-xs" placeholder="e.g. City Super Market" required />
+
+      <label class="label" for="newStoreCategory">Category / Store Type</label>
+      <input id="newStoreCategory" class="input text-xs" placeholder="e.g. Grocery, Pharmacy, Electronics" />
+
+      <label class="label" for="newStorePhone">Contact Phone (Optional)</label>
+      <input id="newStorePhone" class="input text-xs" placeholder="01700000000" />
+
+      <label class="label" for="newStoreAddress">Location / Address (Optional)</label>
+      <input id="newStoreAddress" class="input text-xs" placeholder="e.g. Dhanmondi, Dhaka" />
+
+      <div class="flex gap-2 justify-end pt-3 border-t border-slate-100 mt-2">
+        <button type="button" class="btn btn-secondary close text-xs">Cancel</button>
+        <button type="submit" class="btn btn-primary text-xs">Create Store</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- ADD / EDIT PRODUCT MODAL (With Live Autocomplete Suggestions) -->
+  <dialog id="pDialog">
+    <form id="productForm" class="dlg">
+      <div class="flex justify-between items-center pb-2 border-b border-slate-100">
+        <h2 id="pTitle" class="font-bold text-base text-slate-800">Add Product</h2>
+        <button type="button" class="text-slate-400 hover:text-slate-600 text-lg close">✕</button>
+      </div>
+
+      <!-- Product Name with Live Search & Suggestions Dropdown -->
+      <div class="relative">
+        <label class="label" for="pName">Product Name</label>
+        <input id="pName" class="input text-xs" placeholder="Start typing product name…" autocomplete="off" required />
+        <div id="pSuggestions" class="suggestion-list hidden"></div>
+      </div>
+
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="label" for="pCost">Cost Price (৳)</label>
+          <input id="pCost" type="number" step="any" min="0" class="input text-xs" placeholder="0.00" required />
+        </div>
+        <div>
+          <label class="label" for="pSell">Sell Price (৳)</label>
+          <input id="pSell" type="number" step="any" min="0" class="input text-xs" placeholder="0.00" required />
+        </div>
+      </div>
+
+      <!-- Live Profit & Margin Preview -->
+      <div id="pCalcPreview" class="text-xs text-slate-500 bg-slate-50 p-2.5 rounded-lg border border-slate-100 mt-1">
+        Profit per item: <b id="pProfitPreview" class="text-teal-700">৳0</b> (<span id="pMarginPreview">0%</span> margin)
+      </div>
+
+      <!-- Price Change Note -->
+      <div>
+        <label class="label" for="pNote">Change Note (Stored in Price History)</label>
+        <input id="pNote" class="input text-xs" placeholder="e.g. Supplier price change, festival offer..." />
+      </div>
+
+      <div class="flex gap-2 justify-end pt-3 border-t border-slate-100 mt-2">
+        <button type="button" class="btn btn-secondary close text-xs">Cancel</button>
+        <button type="submit" class="btn btn-primary text-xs">Save Product</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- DUPLICATE PRODUCT CONFIRMATION DIALOG -->
+  <dialog id="pDuplicateDialog">
+    <div class="dlg">
+      <div class="flex items-center gap-2 pb-2 border-b border-amber-200">
+        <span class="text-amber-600 text-xl">⚠️</span>
+        <h2 class="font-bold text-base text-amber-900">Product Already Exists</h2>
+      </div>
+
+      <div class="bg-amber-50 border border-amber-200 text-amber-900 p-3 rounded-lg text-xs leading-relaxed my-2">
+        <p>A product named <b id="dupProdName" class="font-extrabold text-slate-900">Item</b> already exists in this store:</p>
+        <p class="mt-1">Current: Cost <b id="dupOldCost">৳0</b>, Sell <b id="dupOldSell">৳0</b></p>
+        <p class="mt-1">New: Cost <b id="dupNewCost" class="text-teal-800">৳0</b>, Sell <b id="dupNewSell" class="text-teal-800">৳0</b></p>
+        <p class="mt-2 text-slate-600">Would you like to update the existing record and log this change in price history?</p>
+      </div>
+
+      <div class="flex gap-2 justify-end pt-2 border-t border-slate-100">
+        <button id="btnDupCancel" class="btn btn-secondary text-xs">Cancel</button>
+        <button id="btnDupUpdate" class="btn btn-primary text-xs font-bold">Update & Save History</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- PRODUCT PRICE HISTORY TIMELINE MODAL -->
+  <dialog id="pHistoryDialog" class="dialog-wide">
+    <div class="dlg">
+      <div class="flex justify-between items-center pb-2 border-b border-slate-100">
+        <div>
+          <h2 id="histProdTitle" class="font-bold text-base text-slate-800">Price History</h2>
+          <p id="histProdSubtitle" class="text-xs text-slate-500">Timeline of recorded price adjustments</p>
+        </div>
+        <button type="button" class="text-slate-400 hover:text-slate-600 text-lg close">✕</button>
+      </div>
+
+      <div id="histTimeline" class="max-h-96 overflow-y-auto space-y-2.5 py-2"></div>
+
+      <div class="flex justify-end pt-2 border-t border-slate-100">
+        <button type="button" class="btn btn-secondary close text-xs">Close</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- DAILY SELL MODAL (Add / Edit) -->
+  <dialog id="sDialog">
+    <form id="sellForm" class="dlg">
+      <div class="flex justify-between items-center pb-2 border-b border-slate-100">
+        <h2 id="sTitle" class="font-bold text-base text-slate-800">Add Daily Sell</h2>
+        <button type="button" class="text-slate-400 hover:text-slate-600 text-lg close">✕</button>
+      </div>
+
+      <label class="label" for="sDate">Date</label>
+      <input id="sDate" type="date" class="input text-xs" required />
+
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="label" for="sMorning">Morning Amount (৳)</label>
+          <input id="sMorning" type="number" step="any" min="0" class="input text-xs" placeholder="0" required />
+        </div>
+        <div>
+          <label class="label" for="sNight">Night Amount (৳)</label>
+          <input id="sNight" type="number" step="any" min="0" class="input text-xs" placeholder="0" required />
+        </div>
+        <div>
+          <label class="label" for="sKhoroch">Khoroch / Expense (৳)</label>
+          <input id="sKhoroch" type="number" step="any" min="0" class="input text-xs" value="0" />
+        </div>
+        <div>
+          <label class="label" for="sDue">Due Amount (৳)</label>
+          <input id="sDue" type="number" step="any" min="0" class="input text-xs" value="0" />
+        </div>
+      </div>
+
+      <label class="label" for="sNotes">Note / Remarks (Optional)</label>
+      <input id="sNotes" class="input text-xs" placeholder="Special note or reason..." />
+
+      <div class="bg-teal-50 border border-teal-100 p-2.5 rounded-lg flex items-center justify-between text-xs mt-1">
+        <span class="text-teal-800">Total Sell = Night − Morning:</span>
+        <b id="sTotal" class="text-sm font-extrabold text-teal-900">৳0</b>
+      </div>
+
+      <div class="flex gap-2 justify-end pt-3 border-t border-slate-100 mt-2">
+        <button type="button" class="btn btn-secondary close text-xs">Cancel</button>
+        <button type="submit" class="btn btn-primary text-xs">Save Record</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- DELETE ALL RECORDS CONFIRMATION DIALOG -->
+  <dialog id="deleteConfirmDialog">
+    <form id="deleteConfirmForm" class="dlg">
+      <div class="flex justify-between items-center pb-2 border-b border-red-100">
+        <div class="flex items-center gap-2">
+          <span class="text-red-600 text-xl">🚨</span>
+          <h2 class="font-bold text-base text-red-700">Confirm Deletion</h2>
+        </div>
+        <button type="button" class="text-slate-400 hover:text-slate-600 text-lg close">✕</button>
+      </div>
+
+      <div class="bg-red-50 border border-red-200 text-red-800 p-3 rounded-lg text-xs leading-relaxed">
+        <p>You are about to delete <b id="delTargetLabel" class="text-red-900 font-bold">all records</b> from this store.</p>
+        <p class="mt-1">This operation is irreversible. Please verify your <b>User ID</b> and <b>Password</b> to authorize.</p>
+      </div>
+
+      <label class="label" for="delAdminId">User ID</label>
+      <input id="delAdminId" class="input text-xs" required autocomplete="username" />
+
+      <label class="label" for="delAdminPass">Password</label>
+      <div class="relative">
+        <input id="delAdminPass" type="password" class="input !pr-9 text-xs" required autocomplete="current-password" />
+        <button type="button" class="password-toggle-btn absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-red-700 p-0.5" title="Show / Hide Password" tabindex="-1">
+          <svg class="eye-open w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+          <svg class="eye-closed w-4 h-4 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18"/></svg>
+        </button>
+      </div>
+
+      <p id="delError" class="text-xs text-red-600 font-medium hidden"></p>
+
+      <div class="flex gap-2 justify-end pt-3 border-t border-slate-100 mt-2">
+        <button type="button" class="btn btn-secondary close text-xs">Cancel</button>
+        <button id="delSubmitBtn" type="submit" class="btn btn-danger font-bold text-xs">Verify & Delete</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- EDIT PROFILE DIALOG -->
+  <dialog id="editProfileModal">
+    <form id="editProfileForm" class="dlg">
+      <div class="flex justify-between items-center pb-2 border-b border-slate-100">
+        <div class="flex items-center gap-2">
+          <span class="text-xl">✏️</span>
+          <h2 class="font-bold text-base text-slate-800">Edit Profile</h2>
+        </div>
+        <button type="button" class="text-slate-400 hover:text-slate-600 text-lg close">✕</button>
+      </div>
+
+      <div class="space-y-3 pt-2 text-xs">
+        <!-- Profile Picture Upload & Preview -->
+        <div class="flex items-center gap-3.5 p-3 bg-slate-50 rounded-xl border border-slate-200">
+          <div id="editProfAvatarPreview" class="w-14 h-14 rounded-full bg-teal-100 border-2 border-teal-500 flex items-center justify-center text-2xl font-bold shadow-inner shrink-0 overflow-hidden relative">
+            <span id="editProfAvatarFallback">👤</span>
+            <img id="editProfAvatarImg" class="w-full h-full object-cover hidden absolute inset-0" alt="Avatar Preview" />
+          </div>
+          <div class="flex-1 space-y-1">
+            <label class="block text-[11px] font-bold text-slate-700">Profile Picture</label>
+            <div class="flex items-center gap-2">
+              <label class="btn btn-secondary !py-1 !px-2.5 text-[11px] font-semibold cursor-pointer border-teal-300 hover:bg-teal-50">
+                <span>📷 Upload Photo</span>
+                <input type="file" id="editProfPhotoInput" accept="image/*" class="hidden" />
+              </label>
+              <button type="button" id="btnRemovePhoto" class="text-[11px] font-medium text-red-600 hover:text-red-800 hover:underline hidden">
+                Remove
+              </button>
+            </div>
+            <p class="text-[10px] text-slate-400">JPG, PNG or WebP · Max 150 KB · Auto-cropped to square</p>
+          </div>
+        </div>
+
+        <div>
+          <label class="label">User ID (Permanent)</label>
+          <input id="editProfUserId" class="input text-xs bg-slate-100 text-slate-500 font-bold cursor-not-allowed" readonly />
+        </div>
+
+        <div>
+          <label class="label" for="editProfEmail">Email Address</label>
+          <input id="editProfEmail" type="email" class="input text-xs" required />
+        </div>
+
+        <div>
+          <label class="label" for="editProfPhone">Contact Phone Number</label>
+          <input id="editProfPhone" class="input text-xs" placeholder="e.g. 01700000000" />
+        </div>
+
+        <div id="editProfStoreGroup">
+          <label class="label" for="editProfStoreName">Active Store Name</label>
+          <input id="editProfStoreName" class="input text-xs" placeholder="My Store" />
+        </div>
+
+        <p id="editProfSuccess" class="text-xs text-emerald-700 font-medium hidden"></p>
+        <p id="editProfError" class="text-xs text-red-600 font-medium hidden"></p>
+      </div>
+
+      <div class="flex gap-2 justify-end pt-3 border-t border-slate-100 mt-2">
+        <button type="button" class="btn btn-secondary close text-xs">Cancel</button>
+        <button type="submit" class="btn btn-primary text-xs font-bold">Save Changes</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- CHANGE PASSWORD DIALOG -->
+  <dialog id="pwdDialog">
+    <form id="pwdForm" class="dlg">
+      <div class="flex justify-between items-center pb-2 border-b border-slate-100">
+        <h2 class="font-bold text-base text-slate-800">Change Password</h2>
+        <button type="button" class="text-slate-400 hover:text-slate-600 text-lg close">✕</button>
+      </div>
+
+      <label class="label" for="oldPass">Current Password</label>
+      <div class="relative">
+        <input id="oldPass" type="password" class="input !pr-9 text-xs" required />
+        <button type="button" class="password-toggle-btn absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-teal-700 p-0.5" title="Show / Hide Password" tabindex="-1">
+          <svg class="eye-open w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+          <svg class="eye-closed w-4 h-4 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18"/></svg>
+        </button>
+      </div>
+
+      <label class="label" for="newPass">New Password</label>
+      <div class="relative">
+        <input id="newPass" type="password" class="input !pr-9 text-xs" minlength="6" required />
+        <button type="button" class="password-toggle-btn absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-teal-700 p-0.5" title="Show / Hide Password" tabindex="-1">
+          <svg class="eye-open w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+          <svg class="eye-closed w-4 h-4 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18"/></svg>
+        </button>
+      </div>
+
+      <label class="label" for="confirmPass">Confirm New Password</label>
+      <div class="relative">
+        <input id="confirmPass" type="password" class="input !pr-9 text-xs" minlength="6" required />
+        <button type="button" class="password-toggle-btn absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-teal-700 p-0.5" title="Show / Hide Password" tabindex="-1">
+          <svg class="eye-open w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+          <svg class="eye-closed w-4 h-4 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18"/></svg>
+        </button>
+      </div>
+
+      <p id="pwdError" class="text-xs text-red-600 font-medium hidden"></p>
+
+      <div class="flex gap-2 justify-end pt-3 border-t border-slate-100 mt-2">
+        <button type="button" class="btn btn-secondary close text-xs">Cancel</button>
+        <button type="submit" class="btn btn-primary text-xs">Update Password</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- FIREBASE SECURITY RULES HELPER MODAL -->
+  <dialog id="rulesHelperDialog" class="dialog-wide">
+    <div class="dlg">
+      <div class="flex justify-between items-center pb-2 border-b border-slate-100">
+        <div class="flex items-center gap-2">
+          <span class="text-xl">🛡️</span>
+          <div>
+            <h2 class="font-bold text-base text-slate-800">Firebase Firestore Rules Setup</h2>
+            <p class="text-xs text-slate-500">Fix "Missing or insufficient permissions" in 30 seconds</p>
+          </div>
+        </div>
+        <button type="button" class="text-slate-400 hover:text-slate-600 text-lg close">✕</button>
+      </div>
+
+      <div class="space-y-3 text-xs text-slate-600 py-2">
+        <p>In Firebase Console, Cloud Firestore rules control which collections can be read or written. If default rules expired or don't include new collections, Firestore blocks requests with <i>"Missing or insufficient permissions"</i>.</p>
+
+        <div class="bg-slate-900 text-emerald-400 p-3.5 rounded-xl font-mono text-[11px] relative leading-relaxed overflow-x-auto">
+          <pre>rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}</pre>
+          <button id="btnCopyRulesCode" type="button" class="absolute top-2.5 right-2.5 bg-emerald-700 hover:bg-emerald-600 text-white px-2.5 py-1 rounded text-[10px] font-sans font-bold transition">
+            Copy Rules
+          </button>
+        </div>
+
+        <div class="bg-teal-50 border border-teal-200 p-3 rounded-lg text-teal-900 space-y-1">
+          <p class="font-bold">How to apply:</p>
+          <ol class="list-decimal list-inside space-y-0.5 text-[11px] text-teal-800">
+            <li>Go to <a href="https://console.firebase.google.com/project/oboshor-store/firestore/rules" target="_blank" class="underline font-bold text-teal-900">Firebase Console → Firestore Database → Rules</a>.</li>
+            <li>Paste the rules code above.</li>
+            <li>Click <b>Publish</b>. All permissions are immediately enabled!</li>
+          </ol>
+        </div>
+      </div>
+
+      <div class="flex justify-end pt-2 border-t border-slate-100">
+        <button type="button" class="btn btn-secondary close text-xs">Close</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- OTP VERIFICATION MODAL (For Submitting Email Verification Code) -->
+  <dialog id="otpVerifyModal">
+    <div class="dlg space-y-3">
+      <div class="flex justify-between items-center pb-2 border-b border-slate-100">
+        <div class="flex items-center gap-2">
+          <span class="text-xl">🔐</span>
+          <h2 class="font-bold text-base text-slate-800">Verify Account Email</h2>
+        </div>
+        <button type="button" class="text-slate-400 hover:text-slate-600 text-lg close p-1">✕</button>
+      </div>
+
+      <p class="text-xs text-slate-600 leading-relaxed">
+        Please enter the 6-digit verification code sent to your email (<b id="otpVerifyEmailDisplay" class="text-teal-900">user@mail.com</b>):
+      </p>
+
+      <form id="otpVerifyForm" class="space-y-3 pt-1">
+        <div class="flex justify-center">
+          <input id="otpCodeInput" type="text" maxlength="6" class="input !w-48 text-center font-mono font-black tracking-[0.35em] text-xl py-2 bg-slate-50 border-2 border-teal-600 focus:border-teal-700 rounded-xl" placeholder="••••••" required autocomplete="one-time-code" />
+        </div>
+
+        <p id="otpVerifyError" class="text-xs text-red-600 font-bold text-center hidden"></p>
+        <p id="otpVerifySuccess" class="text-xs text-emerald-700 font-bold text-center hidden"></p>
+
+        <div class="flex gap-2 justify-end pt-2 border-t border-slate-100">
+          <button type="button" id="btnResendOtpInsideModal" class="btn btn-secondary text-xs">Resend Code</button>
+          <button type="submit" class="btn btn-primary text-xs font-bold">Verify Code</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+
+  <!-- TOAST NOTIFICATIONS -->
+  <div id="toast" class="fixed bottom-24 md:bottom-6 left-1/2 -translate-x-1/2 px-4 py-2.5 rounded-xl text-white text-sm shadow-xl hidden z-50 flex items-center gap-2 transition-all"></div>
+
+  <!-- Main JavaScript App -->
+  <script type="module" src="app.js"></script>
+</body>
+</html>

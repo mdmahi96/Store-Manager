@@ -1,0 +1,11 @@
+# Dependencies & caches
+node_modules/
+.vercel/
+
+# OS metadata
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs & temp
+*.log
